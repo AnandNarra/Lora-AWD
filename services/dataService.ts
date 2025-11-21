@@ -9,14 +9,12 @@ export const parseDate = (dateStr: string): number => {
   const cleanStr = String(dateStr).trim().replace(/['"]/g, '');
   
   // 1. Try native Date parsing first (Handles ISO 8601 and standard formats)
-  // explicit check for ISO format to ensure T is handled if Date.parse is environment specific
   const nativeTime = Date.parse(cleanStr);
   if (!isNaN(nativeTime) && nativeTime > 946684800000) { // > Year 2000
     return nativeTime;
   }
 
   // 2. Fallback: Manual regex parsing for specific formats like "11/21/2025 3:44:49"
-  // Splits by any non-digit character
   const parts = cleanStr.split(/[^0-9]+/);
   
   if (parts.length >= 3) {
@@ -61,7 +59,7 @@ export const parseDate = (dateStr: string): number => {
   return 0;
 };
 
-// Returns date in format: "21 Nov, 3:44:49 PM"
+// Returns date in format: "21 Nov, 3:44 PM"
 export const formatFriendlyDate = (dateStr: string): string => {
   const ts = parseDate(dateStr);
   if (ts === 0) return "N/A";
@@ -73,22 +71,21 @@ export const formatFriendlyDate = (dateStr: string): string => {
       month: 'short',
       hour: 'numeric',
       minute: '2-digit',
-      second: '2-digit',
       hour12: true
     });
   } catch (e) {
-    // Fallback if locale fails
-    return date.toDateString() + " " + date.toTimeString().split(' ')[0];
+    return date.toDateString();
   }
 };
 
-// Returns date in format: "YYYY-MM-DD HH:mm:ss"
+// Returns date in standard format: "YYYY-MM-DD HH:mm:ss"
 export const formatDateTime = (dateStr: string): string => {
   const ts = parseDate(dateStr);
   if (ts === 0) return "N/A";
   const date = new Date(ts);
   
   const pad = (n: number) => n < 10 ? '0' + n : n;
+  // Returns format: 2025-11-20 22:22:29
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
@@ -109,22 +106,19 @@ export const fetchSensorData = async (): Promise<{ sensors: SensorData[], gatewa
     if (!contentType || !contentType.includes('application/json')) {
       const text = await response.text();
       console.error("Received non-JSON response:", text.substring(0, 200));
-      throw new Error("Received invalid response (HTML/Text) from Google Sheets. Please check your Script Deployment URL.");
+      throw new Error("Received invalid response from Google Sheets.");
     }
 
     const rawData = await response.json();
 
     if (rawData && !Array.isArray(rawData)) {
       if (rawData.status === 'error' || rawData.result === 'error') {
-        if (rawData.message && rawData.message.includes("Sheet not found")) {
-          return { sensors: [], gateway: getDefaultGateway(), logs: [] };
-        }
-        throw new Error(rawData.message || "Google Sheets Script returned an error.");
+        return { sensors: [], gateway: getDefaultGateway(), logs: [] };
       }
       if (Object.keys(rawData).length === 0) {
          return { sensors: [], gateway: getDefaultGateway(), logs: [] };
       }
-      throw new Error("Invalid data format received. Expected an Array of rows.");
+      throw new Error("Invalid data format received.");
     }
 
     if (!rawData || rawData.length === 0) {
@@ -140,7 +134,8 @@ export const fetchSensorData = async (): Promise<{ sensors: SensorData[], gatewa
     
     // 2. Group by Device
     const groupedSensors: Record<string, SensorData> = {};
-    let latestGatewayRow = sortedRows[sortedRows.length - 1] || rows[0];
+    // Determine latest gateway info from the absolute last row
+    let latestGatewayRow = sortedRows.length > 0 ? sortedRows[sortedRows.length - 1] : rows[0];
 
     sortedRows.forEach(row => {
       const deviceId = row["Device ID"];
@@ -178,7 +173,7 @@ export const fetchSensorData = async (): Promise<{ sensors: SensorData[], gatewa
       wifiSignal: String(latestGatewayRow["WiFi Strength (dBm)"] || "0"),
       gsmSignal: String(latestGatewayRow["GSM Strength (RSSI)"] || "0"),
       sdFree: String(latestGatewayRow["SD Free (MB)"] || "0"),
-      lastBatchUpload: latestGatewayRow["Batch Upload Time"] || "N/A"
+      lastBatchUpload: latestGatewayRow["Batch Upload Time"] || latestGatewayRow["Gateway Received Time"] || "N/A"
     };
 
     // 3. Logs should be Newest -> Oldest (Latest at top)

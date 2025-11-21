@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { SheetRow } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { Database, Clock, Radio, Download, AlertCircle, Filter, ChevronDown, Table } from 'lucide-react';
-import { mapDeviceNickname, parseDate, formatFriendlyDate } from '../services/dataService';
+import { mapDeviceNickname, formatDateTime } from '../services/dataService';
+import { SignalBars } from './SignalBars';
 
 interface Props {
   logs: SheetRow[];
@@ -141,7 +142,7 @@ export const DataLogs: React.FC<Props> = ({ logs, error }) => {
                 <td className="px-6 py-3 whitespace-nowrap text-sm text-slate-600 font-mono border-l-4 border-transparent hover:border-blue-500">
                   <div className="flex items-center gap-2">
                     <Clock size={14} className="text-slate-400 group-hover:text-blue-500" />
-                    {formatFriendlyDate(row["Gateway Received Time"])}
+                    {formatDateTime(row["Gateway Received Time"])}
                   </div>
                 </td>
                 <td className="px-6 py-3 whitespace-nowrap">
@@ -158,11 +159,14 @@ export const DataLogs: React.FC<Props> = ({ logs, error }) => {
                 </td>
                 <td className="px-6 py-3 whitespace-nowrap text-sm text-slate-600 hidden md:table-cell">
                   <div className="flex flex-col">
-                    <span className="flex items-center gap-1.5">
-                       <Radio size={12} className={row["Network"] === "WiFi" ? "text-blue-500" : "text-green-500"} />
-                       {row["Network"]}
-                    </span>
-                    <span className="text-xs text-slate-400">
+                    <div className="flex items-center gap-2">
+                       <span className="text-xs font-bold text-slate-600">{row["Network"]}</span>
+                       <SignalBars 
+                         type={row["Network"] === "WiFi" ? "WiFi" : "GSM"} 
+                         value={row["Network"] === "WiFi" ? row["WiFi Strength (dBm)"] : row["GSM Strength (RSSI)"]} 
+                       />
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-0.5">
                       {row["Network"] === "WiFi" ? `${row["WiFi Strength (dBm)"]} dBm` : `${row["GSM Strength (RSSI)"]} CSQ`}
                     </span>
                   </div>
@@ -175,7 +179,7 @@ export const DataLogs: React.FC<Props> = ({ logs, error }) => {
             {filteredLogs.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">
-                  No logs found for this device.
+                  No logs found.
                 </td>
               </tr>
             )}
