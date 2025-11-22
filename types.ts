@@ -1,3 +1,4 @@
+
 export interface SheetRow {
   "Gateway Received Time": string;
   "Device ID": string;
@@ -29,4 +30,5 @@ export interface GatewayStatus {
   gsmSignal: string;
   sdFree: string;
   lastBatchUpload: string;
+  source?: string;
 }

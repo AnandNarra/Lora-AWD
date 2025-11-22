@@ -1,5 +1,4 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { fetchSensorData, parseDate, formatDateTime } from './services/dataService';
 import { SensorData, GatewayStatus, SheetRow } from './types';
 import { StatusBadge } from './components/StatusBadge';
@@ -11,7 +10,7 @@ import { WeatherDashboard } from './components/WeatherDashboard';
 import { CropManager, calculateStage } from './components/CropManager';
 import { AWDGauge } from './components/AWDGauge';
 import { fetchLocalWeather, getUserLocation, WeatherData } from './services/weatherService';
-import { Sprout, RefreshCw, ArrowLeft, Clock, LayoutDashboard, FileText, AlertTriangle, Zap, Radio, ArrowRight, Move, Save, MapPin, CloudRain, ChevronRight, Sun, CloudSun } from 'lucide-react';
+import { Sprout, RefreshCw, ArrowLeft, Clock, LayoutDashboard, FileText, AlertTriangle, Zap, Radio, ArrowRight, Move, Save, MapPin, CloudRain, Sun, CloudSun, Smartphone, Edit2, Check, X } from 'lucide-react';
 
 function App() {
   const [loading, setLoading] = useState(true);
@@ -25,11 +24,25 @@ function App() {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'weather'>('dashboard');
   const [isRearranging, setIsRearranging] = useState(false);
+  
+  // Renaming State
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [tempName, setTempName] = useState('');
+
+  // Filter State for Dashboard
+  const [dashboardFilter, setDashboardFilter] = useState<'all' | 'lora' | 'gsm'>('all');
 
   // --- New Features State ---
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState(false);
+
+  const getSavedNames = () => {
+    try {
+      const saved = localStorage.getItem('sensor_custom_names');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  };
 
   const loadData = async () => {
     if (!isRearranging) setLoading(true); 
@@ -37,9 +50,16 @@ function App() {
     try {
       const data = await fetchSensorData();
       
-      // Apply saved order
+      // 1. Apply Custom Names
+      const savedNames = getSavedNames();
+      const sensorsWithNames = data.sensors.map(s => ({
+          ...s,
+          name: savedNames[s.id] || s.name
+      }));
+
+      // 2. Apply saved order
       const savedOrderJson = localStorage.getItem('sensorOrder');
-      let sortedSensors = data.sensors;
+      let sortedSensors = sensorsWithNames;
       
       if (savedOrderJson) {
         try {
@@ -62,7 +82,7 @@ function App() {
       setLastRefreshed(new Date());
 
       if (selectedSensor) {
-        const updated = data.sensors.find(s => s.id === selectedSensor.id);
+        const updated = sortedSensors.find(s => s.id === selectedSensor.id);
         if (updated) setSelectedSensor(updated);
       }
     } catch (err: any) {
@@ -88,7 +108,6 @@ function App() {
     const saved = localStorage.getItem('fieldLocation');
     if (saved) {
         const { lat, lon, name } = JSON.parse(saved);
-        // On initial load, use saved name if available
         fetchAndSetWeather(lat, lon, false, name);
     }
   }, []);
@@ -98,24 +117,15 @@ function App() {
     setWeatherError(false);
     try {
         const data = await fetchLocalWeather(lat, lon);
-        
-        // Logic:
-        // 1. If overrideName is provided (manual rename), use it.
-        // 2. If we are refreshing (save=false), try to keep the existing saved name.
-        // 3. If we are updating GPS (save=true), use the new geocoded name (data.locationName).
-        
         let finalName = data.locationName || "Local Field";
         
         if (overrideName) {
             finalName = overrideName;
         } else if (!save) {
-            // We are just refreshing weather, try to preserve the custom name if user set one
             const saved = localStorage.getItem('fieldLocation');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                if (parsed.name) {
-                    finalName = parsed.name;
-                }
+                if (parsed.name) finalName = parsed.name;
             }
         }
 
@@ -137,14 +147,11 @@ function App() {
     }
   };
 
-  // Called when user clicks "Update Location" (Uses GPS)
   const handleUpdateLocation = async () => {
     try {
         setWeatherLoading(true);
         setWeatherError(false);
         const loc = await getUserLocation();
-        // When updating from GPS, we force a save which might overwrite the name with the geocoded one,
-        // but the user can then rename it.
         await fetchAndSetWeather(loc.lat, loc.lon, true);
     } catch (e) {
         console.error("GPS Error", e);
@@ -153,26 +160,20 @@ function App() {
     }
   };
 
-  // Called when user clicks "Refresh" (Uses Saved Location)
   const handleRefreshWeather = async () => {
     const saved = localStorage.getItem('fieldLocation');
     if (saved) {
         const { lat, lon, name } = JSON.parse(saved);
         await fetchAndSetWeather(lat, lon, false, name);
     } else {
-        // If no location saved, try to get it
         handleUpdateLocation();
     }
   };
 
   const handleLocationNameChange = (newName: string) => {
      if (!weather) return;
-     
-     // Update state immediately
      const updated = { ...weather, locationName: newName };
      setWeather(updated);
-     
-     // Update local storage
      const saved = localStorage.getItem('fieldLocation');
      if (saved) {
          const data = JSON.parse(saved);
@@ -193,6 +194,31 @@ function App() {
     localStorage.setItem('sensorOrder', JSON.stringify(orderIds));
   };
 
+  // Renaming Handlers
+  const handleEditName = (e: React.MouseEvent, sensor: SensorData) => {
+    e.stopPropagation();
+    setEditingNameId(sensor.id);
+    setTempName(sensor.name);
+  };
+
+  const handleSaveName = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const saved = getSavedNames();
+    if (!tempName.trim()) {
+        delete saved[id]; // Revert to default if empty
+    } else {
+        saved[id] = tempName.trim();
+    }
+    localStorage.setItem('sensor_custom_names', JSON.stringify(saved));
+    setEditingNameId(null);
+    loadData(); // Reload to apply changes
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingNameId(null);
+  };
+
   const getTimeAgo = (dateStr: string) => {
     const ts = parseDate(dateStr);
     if (ts === 0) return 'Unknown';
@@ -207,7 +233,6 @@ function App() {
     return new Date(ts).toLocaleDateString();
   };
 
-  // Helper to get crop stage for dashboard list
   const getCropInfo = (id: string) => {
     try {
         const saved = localStorage.getItem(`crop_${id}`);
@@ -217,6 +242,46 @@ function App() {
     } catch (e) { return null; }
     return null;
   };
+
+  // Filter sensors based on selection
+  const filteredSensors = useMemo(() => {
+      if (dashboardFilter === 'all') return sensors;
+      if (dashboardFilter === 'lora') return sensors.filter(s => s.id.toLowerCase().includes('lora'));
+      if (dashboardFilter === 'gsm') return sensors.filter(s => !s.id.toLowerCase().includes('lora'));
+      return sensors;
+  }, [sensors, dashboardFilter]);
+
+  // Filter logs based on current dashboard filter
+  const filteredLogs = useMemo(() => {
+      if (dashboardFilter === 'all') return logs;
+      if (dashboardFilter === 'lora') return logs.filter(l => l["Device ID"] && l["Device ID"].toLowerCase().includes('lora'));
+      if (dashboardFilter === 'gsm') return logs.filter(l => l["Device ID"] && !l["Device ID"].toLowerCase().includes('lora'));
+      return logs;
+  }, [logs, dashboardFilter]);
+
+  // Calculate active gateway status based on filtered logs (latest log from filtered set)
+  const activeGateway = useMemo(() => {
+      if (filteredLogs.length > 0) {
+          const latest = filteredLogs[0];
+          return {
+              network: latest["Network"] || "Unknown",
+              simOperator: latest["SIM Operator"] || "-",
+              wifiSignal: String(latest["WiFi Strength (dBm)"] || "0"),
+              gsmSignal: String(latest["GSM Strength (RSSI)"] || "0"),
+              sdFree: String(latest["SD Free (MB)"] || "0"),
+              lastBatchUpload: latest["Batch Upload Time"] || latest["Gateway Received Time"] || "N/A",
+              source: latest["Device ID"]
+          } as GatewayStatus;
+      }
+      return gateway;
+  }, [filteredLogs, gateway]);
+
+  // Check if we have mixed device types to show filter
+  const hasMixedDevices = useMemo(() => {
+      const hasLora = sensors.some(s => s.id.toLowerCase().includes('lora'));
+      const hasGsm = sensors.some(s => !s.id.toLowerCase().includes('lora'));
+      return hasLora && hasGsm;
+  }, [sensors]);
 
   return (
     <div className="min-h-screen bg-[#f8f9fa] text-slate-800 font-sans selection:bg-emerald-100">
@@ -256,7 +321,6 @@ function App() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* Weather Widget (Desktop Navbar) */}
               {activeTab === 'dashboard' && !weather && (
                   <div className="hidden lg:flex items-center gap-3 mr-2">
                     <button 
@@ -269,6 +333,9 @@ function App() {
                     </button>
                   </div>
               )}
+
+              {/* Current Live Clock */}
+              <CurrentClock />
 
               <div className="text-right hidden lg:block border-r border-slate-100 pr-4 mr-1">
                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Last Updated</span>
@@ -363,7 +430,7 @@ function App() {
            </div>
         ) : activeTab === 'logs' ? (
            <div className="animate-in fade-in duration-300">
-             <DataLogs logs={logs} error={error} />
+             <DataLogs logs={filteredLogs} error={error} />
            </div>
         ) : selectedSensor ? (
           // Detailed View
@@ -388,9 +455,15 @@ function App() {
                       <StatusBadge status={selectedSensor.status} />
                     </div>
                     <div className="flex items-center gap-4 text-sm text-slate-500 mb-4">
-                      <div className="flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-semibold">
-                          <Radio size={12} /> LoRa
-                      </div>
+                      {(() => {
+                          const isLora = selectedSensor.id.toLowerCase().includes('lora');
+                          return (
+                             <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ${isLora ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+                                  {isLora ? <Radio size={12} /> : <Smartphone size={12} />}
+                                  {isLora ? 'LoRa' : 'GSM'}
+                              </div>
+                          );
+                      })()}
                       <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-xs border border-slate-200">{selectedSensor.id}</span>
                       <span className="flex items-center gap-1.5">
                           <Clock size={14} className="text-slate-400" />
@@ -413,6 +486,7 @@ function App() {
                               level={selectedSensor.currentLevel} 
                               weather={weather}
                               cropStage={getCropInfo(selectedSensor.id) ? { name: getCropInfo(selectedSensor.id)!.stageName, index: getCropInfo(selectedSensor.id)!.stageIndex } : undefined}
+                              plotName={selectedSensor.name}
                           />
                           {weather && weather.isRainy && (
                               <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded border border-blue-100">
@@ -454,7 +528,7 @@ function App() {
         ) : (
           // Grid View
           <>
-          {/* Weather Banner (Keep in Dashboard view if weather is loaded) */}
+          {/* Weather Banner */}
           {weather && (
             <div className="mb-6 bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg shadow-blue-200 animate-in fade-in slide-in-from-top-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -518,9 +592,9 @@ function App() {
           )}
 
           {/* Gateway Status */}
-          {gateway && !isRearranging && (
+          {(activeGateway || gateway) && !isRearranging && (
             <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-                <SystemHealth status={gateway} />
+                <SystemHealth status={activeGateway || gateway!} />
             </div>
           )}
 
@@ -542,113 +616,152 @@ function App() {
                 </button>
             </div>
           )}
+          
+          {/* Device Filter */}
+          {hasMixedDevices && !isRearranging && (
+              <div className="flex gap-2 mb-6 bg-white p-1 rounded-lg border border-slate-200 shadow-sm w-fit animate-in fade-in">
+                  <button 
+                    onClick={() => setDashboardFilter('all')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${dashboardFilter === 'all' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
+                  >
+                      All Fields
+                  </button>
+                  <button 
+                    onClick={() => setDashboardFilter('lora')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1 ${dashboardFilter === 'lora' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                  >
+                      <Radio size={12} /> LoRa Network
+                  </button>
+                  <button 
+                    onClick={() => setDashboardFilter('gsm')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1 ${dashboardFilter === 'gsm' ? 'bg-orange-50 text-orange-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                  >
+                      <Smartphone size={12} /> Standalone GSM
+                  </button>
+              </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
-            {sensors.length === 0 && !loading && !error && (
+            {filteredSensors.length === 0 && !loading && !error && (
                <div className="col-span-full flex flex-col items-center justify-center p-16 bg-white rounded-2xl border border-slate-200 border-dashed text-center">
                  <div className="bg-slate-50 p-4 rounded-full mb-4">
                    <LayoutDashboard className="h-10 w-10 text-slate-300" />
                  </div>
-                 <h3 className="text-lg font-semibold text-slate-900">No Fields Connected</h3>
-                 <p className="text-slate-500 text-sm mt-2 max-w-xs mx-auto">Waiting for data from LoRa nodes.</p>
+                 <h3 className="text-lg font-semibold text-slate-900">No Fields Found</h3>
+                 <p className="text-slate-500 mt-2">Ensure your Google Sheet is connected.</p>
                </div>
             )}
+            {filteredSensors.map((sensor, index) => {
+              const cropInfo = getCropInfo(sensor.id);
 
-            {sensors.map((sensor, index) => {
-                const cropInfo = getCropInfo(sensor.id);
+              return (
+              <div 
+                key={sensor.id}
+                onClick={() => setSelectedSensor(sensor)}
+                className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer group relative overflow-hidden"
+              >
+                <div className="flex justify-between items-start mb-4">
+                   <div className="flex items-center gap-3 overflow-hidden">
+                      <div className={`p-2 rounded-xl shrink-0 ${sensor.id.toLowerCase().includes('lora') ? 'bg-indigo-50 text-indigo-600' : 'bg-orange-50 text-orange-600'}`}>
+                          {sensor.id.toLowerCase().includes('lora') ? <Radio size={18} /> : <Smartphone size={18} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                          {editingNameId === sensor.id ? (
+                              <div className="flex items-center gap-1 animate-in fade-in" onClick={e => e.stopPropagation()}>
+                                  <input 
+                                      type="text" 
+                                      value={tempName}
+                                      onChange={e => setTempName(e.target.value)}
+                                      className="w-full min-w-[80px] text-sm font-bold text-slate-900 border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                          if(e.key === 'Enter') handleSaveName(e, sensor.id);
+                                          if(e.key === 'Escape') handleCancelEdit(e);
+                                      }}
+                                      onClick={e => e.stopPropagation()}
+                                  />
+                                  <button onClick={(e) => handleSaveName(e, sensor.id)} className="p-1 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 shrink-0"><Check size={12}/></button>
+                                  <button onClick={(e) => handleCancelEdit(e)} className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 shrink-0"><X size={12}/></button>
+                              </div>
+                          ) : (
+                              <div className="flex items-center gap-2 group/name relative">
+                                  <h3 className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors truncate">{sensor.name}</h3>
+                                  <button 
+                                      onClick={(e) => handleEditName(e, sensor)}
+                                      className="opacity-100 md:opacity-0 group-hover/name:opacity-100 text-slate-300 hover:text-blue-600 transition-all p-1 rounded hover:bg-slate-100 shrink-0"
+                                      title="Rename Plot"
+                                  >
+                                      <Edit2 size={12} />
+                                  </button>
+                              </div>
+                          )}
+                          <p className="text-xs text-slate-400 font-mono truncate">{sensor.id}</p>
+                      </div>
+                   </div>
+                   <StatusBadge status={sensor.status} />
+                </div>
 
-                return (
-                  <div 
-                    key={sensor.id}
-                    onClick={() => !isRearranging && setSelectedSensor(sensor)}
-                    className={`group bg-white rounded-2xl shadow-[0_2px_10px_-4px_rgba(6,81,237,0.1)] border p-6 transition-all duration-300 relative overflow-hidden ${isRearranging ? 'border-emerald-400 border-dashed cursor-default' : 'border-slate-100 cursor-pointer hover:shadow-xl hover:border-emerald-200 hover:-translate-y-1'}`}
-                  >
-                    <div className="flex justify-between items-start mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2.5 rounded-xl transition-colors duration-300 ${isRearranging ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white'}`}>
-                          <Sprout className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <h3 className={`text-lg font-bold transition-colors ${isRearranging ? 'text-slate-600' : 'text-slate-900 group-hover:text-emerald-700'}`}>{sensor.name}</h3>
-                          <div className="flex items-center gap-1 mt-1">
-                            <span className="flex items-center justify-center h-4 w-4 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-                                <Radio size={9} />
-                            </span>
-                            <div className="text-xs text-slate-400 font-mono">{sensor.id}</div>
-                          </div>
-                        </div>
-                      </div>
-                      {!isRearranging && <StatusBadge status={sensor.status} />}
+                {/* Water Level & Gauge */}
+                <div className="mb-4">
+                    <div className="flex items-end gap-2 mb-2">
+                        <span className="text-3xl font-bold text-slate-900 tracking-tight">{sensor.currentLevel}</span>
+                        <span className="text-sm font-medium text-slate-400 mb-1.5">cm</span>
                     </div>
-                    
-                    <div className="mb-4">
-                      <div className="flex items-baseline gap-1">
-                        <span className={`text-4xl font-extrabold tracking-tighter transition-colors ${isRearranging ? 'text-slate-400' : 'text-slate-800 group-hover:text-emerald-600'}`}>{sensor.currentLevel}</span>
-                        <span className="text-lg font-medium text-slate-400">cm</span>
-                      </div>
-                      
-                      <AWDGauge level={sensor.currentLevel} />
-                      
-                      {/* Crop Stage Info on Dashboard */}
-                      {cropInfo && !isRearranging && (
-                        <div className="flex items-center gap-3 mt-3 mb-1 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                            <div className="bg-white p-1.5 rounded-lg shadow-sm text-emerald-600 border border-slate-100">
-                                <Sprout size={16} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex justify-between items-center mb-1.5">
-                                    <span className="text-xs font-bold text-slate-700 truncate mr-2">{cropInfo.stageName}</span>
-                                    <span className="text-[10px] font-bold text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm whitespace-nowrap">{cropInfo.days} Days</span>
-                                </div>
-                                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min((cropInfo.days / cropInfo.totalDuration) * 100, 100)}%` }}></div>
-                                </div>
-                            </div>
+                    <AWDGauge level={sensor.currentLevel} />
+                </div>
+
+                {/* Crop Stage Info */}
+                {cropInfo && (
+                    <div className="flex items-center justify-between text-xs mb-3 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                            <Sprout size={14} className="text-emerald-600" />
+                            {cropInfo.stageName}
                         </div>
-                      )}
-                      
-                      {!isRearranging && (
-                            <IrrigationAdvice 
-                                level={sensor.currentLevel} 
-                                weather={weather}
-                                cropStage={cropInfo ? { name: cropInfo.stageName, index: cropInfo.stageIndex } : undefined}
-                            />
-                      )}
-                    </div>
-                    
-                    <div className={`flex items-center justify-between text-xs pt-4 border-t ${isRearranging ? 'border-slate-100 mt-4' : 'border-slate-50'}`}>
-                      {isRearranging ? (
-                        <div className="flex items-center justify-between w-full gap-2">
-                            <button 
-                                onClick={(e) => moveSensor(e, index, -1)}
-                                disabled={index === 0}
-                                className="flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-100 text-slate-600 font-bold uppercase hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-30 disabled:hover:bg-slate-100 disabled:hover:text-slate-600 transition-all flex-1 justify-center"
-                            >
-                                <ArrowLeft size={14} /> Prev
-                            </button>
-                            <span className="font-mono text-slate-300 font-bold">#{index + 1}</span>
-                            <button 
-                                onClick={(e) => moveSensor(e, index, 1)}
-                                disabled={index === sensors.length - 1}
-                                className="flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-100 text-slate-600 font-bold uppercase hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-30 disabled:hover:bg-slate-100 disabled:hover:text-slate-600 transition-all flex-1 justify-center"
-                            >
-                                Next <ArrowRight size={14} />
-                            </button>
+                        <div className="font-mono text-slate-500">
+                            Day {cropInfo.days}
                         </div>
-                      ) : (
-                        <>
-                            <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-                                <Clock size={14} className="text-slate-400" />
-                                {getTimeAgo(sensor.lastUpdated)}
-                            </div>
-                            <div className="flex items-center gap-1 text-emerald-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                                View Details <ChevronRight size={12} />
-                            </div>
-                        </>
-                      )}
                     </div>
-                  </div>
-                );
+                )}
+
+                {/* Irrigation Advice */}
+                <IrrigationAdvice 
+                    level={sensor.currentLevel} 
+                    weather={weather}
+                    cropStage={cropInfo ? { name: cropInfo.stageName, index: cropInfo.stageIndex } : undefined}
+                    plotName={sensor.name}
+                />
+                
+                <div className="flex items-center justify-between text-xs text-slate-500 border-t border-slate-50 pt-3 mt-3">
+                   <div className="flex items-center gap-1.5">
+                      <Clock size={12} />
+                      {getTimeAgo(sensor.lastUpdated)}
+                   </div>
+                   <div className="flex items-center gap-1 font-medium text-emerald-600 group-hover:translate-x-1 transition-transform">
+                      View Details <ArrowRight size={12} />
+                   </div>
+                </div>
+
+                {/* Rearrange Overlay */}
+                {isRearranging && (
+                    <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center gap-2 z-10 animate-in fade-in" onClick={(e) => e.stopPropagation()}>
+                        <button 
+                           onClick={(e) => moveSensor(e, index, -1)} 
+                           disabled={index === 0}
+                           className="p-3 rounded-full bg-white border border-slate-200 shadow-sm hover:bg-slate-50 disabled:opacity-30"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+                        <button 
+                           onClick={(e) => moveSensor(e, index, 1)} 
+                           disabled={index === sensors.length - 1}
+                           className="p-3 rounded-full bg-white border border-slate-200 shadow-sm hover:bg-slate-50 disabled:opacity-30"
+                        >
+                            <ArrowRight size={20} />
+                        </button>
+                    </div>
+                )}
+              </div>
+              );
             })}
           </div>
           </>
@@ -659,10 +772,30 @@ function App() {
 }
 
 const DetailCard = ({ label, value }: { label: string, value: string }) => (
-  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
-    <span className="font-mono font-semibold text-sm text-slate-700 break-all">{value}</span>
+  <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">{label}</span>
+    <span className="font-mono font-semibold text-slate-700 text-xs sm:text-sm break-all">{value}</span>
   </div>
 );
+
+const CurrentClock = () => {
+  const [time, setTime] = useState(new Date());
+  
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="flex flex-col items-end mr-4 border-r border-slate-100 pr-4">
+       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+         {time.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+       </span>
+       <span className="text-sm font-mono font-bold text-slate-700 leading-none">
+         {time.toLocaleTimeString()}
+       </span>
+    </div>
+  );
+};
 
 export default App;

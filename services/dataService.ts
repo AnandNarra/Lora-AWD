@@ -1,7 +1,15 @@
+
 import { SheetRow, SensorData, GatewayStatus } from '../types';
 
-// The URL extracted from your Arduino code
-const API_URL = 'https://script.google.com/macros/s/AKfycbwMl7VGQlu4--r5DjptzE8JF5XXDoRIWSnYJ-0qCuYBEQnLbaBvXHzBNmuQcgjiynnf/exec';
+// --- DATA CONFIGURATION ---
+const DATA_SOURCES = [
+  // 1. Original LoRa Gateway Sheet
+  'https://script.google.com/macros/s/AKfycbwMl7VGQlu4--r5DjptzE8JF5XXDoRIWSnYJ-0qCuYBEQnLbaBvXHzBNmuQcgjiynnf/exec',
+
+  // 2. Standalone GSM Device Sheet
+  'https://script.google.com/macros/s/AKfycby61hthQVULKFW_1--hI0V2t-gjxOVSnUzZ6iHK-Q-RT2cpUbvgvmM7BfFt5rSOuR0MFw/exec'
+];
+// --------------------------
 
 // Helper to parse date strings robustly handling multiple formats (ISO, US, Euro)
 export const parseDate = (dateStr: string): number => {
@@ -14,7 +22,7 @@ export const parseDate = (dateStr: string): number => {
     return nativeTime;
   }
 
-  // 2. Fallback: Manual regex parsing for specific formats like "11/21/2025 3:44:49"
+  // 2. Fallback: Manual regex parsing for specific formats
   const parts = cleanStr.split(/[^0-9]+/);
   
   if (parts.length >= 3) {
@@ -34,8 +42,6 @@ export const parseDate = (dateStr: string): number => {
     // Case B: Year third (MM/DD/YYYY or DD/MM/YYYY)
     else if (nums[2] > 1000) {
        year = nums[2];
-       // Heuristic: If first part > 12, it must be Day (DD/MM/YYYY)
-       // Otherwise, default to US format (MM/DD/YYYY)
        if (nums[0] > 12) {
           day = nums[0];
           month = nums[1];
@@ -59,7 +65,6 @@ export const parseDate = (dateStr: string): number => {
   return 0;
 };
 
-// Returns date in format: "21 Nov, 3:44 PM"
 export const formatFriendlyDate = (dateStr: string): string => {
   const ts = parseDate(dateStr);
   if (ts === 0) return "N/A";
@@ -78,72 +83,109 @@ export const formatFriendlyDate = (dateStr: string): string => {
   }
 };
 
-// Returns date in standard format: "YYYY-MM-DD HH:mm:ss"
 export const formatDateTime = (dateStr: string): string => {
   const ts = parseDate(dateStr);
   if (ts === 0) return "N/A";
   const date = new Date(ts);
   
   const pad = (n: number) => n < 10 ? '0' + n : n;
-  // Returns format: 2025-11-20 22:22:29
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
 export const fetchSensorData = async (): Promise<{ sensors: SensorData[], gateway: GatewayStatus, logs: SheetRow[] }> => {
   try {
-    // Append timestamp to prevent browser caching of the GET request
-    const response = await fetch(`${API_URL}?nocache=${Date.now()}`, {
-      method: 'GET',
-      credentials: 'omit',
-      redirect: 'follow'
+    const activeSources = DATA_SOURCES.filter(url => url && url.trim().length > 0 && url.startsWith('http'));
+
+    if (activeSources.length === 0) {
+        console.warn("No data sources configured in dataService.ts");
+        return { sensors: [], gateway: getDefaultGateway(), logs: [] };
+    }
+
+    // Fetch from all sources in parallel
+    const fetchPromises = activeSources.map(async (url) => {
+        try {
+            const response = await fetch(`${url}?nocache=${Date.now()}`, {
+                method: 'GET',
+                credentials: 'omit',
+                redirect: 'follow'
+            });
+
+            if (!response.ok) {
+                console.warn(`HTTP Error from source ${url}: ${response.status}`);
+                return [];
+            }
+
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                 return []; 
+            }
+
+            const data = await response.json();
+            if (Array.isArray(data)) return data;
+            if (data && typeof data === 'object') {
+                if (data.data && Array.isArray(data.data)) return data.data;
+                return [];
+            }
+            return [];
+        } catch (error) {
+            console.warn(`Failed to fetch from source: ${url}`, error);
+            return []; 
+        }
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
-    }
+    const results = await Promise.all(fetchPromises);
+    
+    // Merge and Normalize Data
+    let allRows: SheetRow[] = [];
+    results.forEach(rows => {
+        if (Array.isArray(rows)) {
+            const normalized = rows.map((r: any) => {
+                // Detect if this is the new GSM format (camelCase keys)
+                if (r.waterLevel !== undefined || r.timestamp !== undefined) {
+                     return {
+                        "Gateway Received Time": r.timestamp,
+                        "Device ID": r.device || "GSM-Device",
+                        "Transmitter Data": r.dataType || "Direct",
+                        "Water Level (cm)": Number(r.waterLevel || 0),
+                        "Status": r.status || "Unknown",
+                        "Network": r.network || "GSM",
+                        "Batch Upload Time": r.timestamp, // Direct upload usually implies realtime
+                        "SIM Operator": r.simOperator || "-",
+                        "WiFi Strength (dBm)": r.wifiStrength || 0,
+                        "GSM Strength (RSSI)": r.gsmStrength || 0,
+                        "SD Free (MB)": r.sdRemaining || 0
+                     } as SheetRow;
+                }
+                // Assume standard LoRa SheetRow format
+                return r as SheetRow;
+            });
+            allRows = [...allRows, ...normalized];
+        }
+    });
 
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      const text = await response.text();
-      console.error("Received non-JSON response:", text.substring(0, 200));
-      throw new Error("Received invalid response from Google Sheets.");
-    }
-
-    const rawData = await response.json();
-
-    if (rawData && !Array.isArray(rawData)) {
-      if (rawData.status === 'error' || rawData.result === 'error') {
-        return { sensors: [], gateway: getDefaultGateway(), logs: [] };
-      }
-      if (Object.keys(rawData).length === 0) {
-         return { sensors: [], gateway: getDefaultGateway(), logs: [] };
-      }
-      throw new Error("Invalid data format received.");
-    }
-
-    if (!rawData || rawData.length === 0) {
+    if (allRows.length === 0) {
       return { sensors: [], gateway: getDefaultGateway(), logs: [] };
     }
 
-    const rows = rawData as SheetRow[];
+    const rows = allRows;
 
-    // 1. Sort all raw data by time (Oldest -> Newest) for correct history
+    // 1. Sort by time (Oldest -> Newest) for history
     const sortedRows = [...rows]
       .filter(r => r["Gateway Received Time"])
       .sort((a, b) => parseDate(a["Gateway Received Time"]) - parseDate(b["Gateway Received Time"]));
     
     // 2. Group by Device
     const groupedSensors: Record<string, SensorData> = {};
-    // Determine latest gateway info from the absolute last row
+    
+    // Determine latest system info from the absolute last row
     let latestGatewayRow = sortedRows.length > 0 ? sortedRows[sortedRows.length - 1] : rows[0];
 
     sortedRows.forEach(row => {
       const deviceId = row["Device ID"];
-      
-      // Raw water level from sensor (assumed cm)
+      if (!deviceId) return;
+
       const rawLevel = Number(row["Water Level (cm)"]);
-      const realLevel = rawLevel;
-      
+      const realLevel = isNaN(rawLevel) ? 0 : rawLevel;
       const time = row["Gateway Received Time"];
       
       if (!groupedSensors[deviceId]) {
@@ -152,7 +194,7 @@ export const fetchSensorData = async (): Promise<{ sensors: SensorData[], gatewa
           name: mapDeviceNickname(deviceId),
           currentLevel: realLevel,
           lastUpdated: time,
-          status: row["Status"] as any, // Note: Status from sheet might be based on raw, but we display our calculated level
+          status: row["Status"] as any,
           history: [],
           raw: row
         };
@@ -177,27 +219,35 @@ export const fetchSensorData = async (): Promise<{ sensors: SensorData[], gatewa
       wifiSignal: String(latestGatewayRow["WiFi Strength (dBm)"] || "0"),
       gsmSignal: String(latestGatewayRow["GSM Strength (RSSI)"] || "0"),
       sdFree: String(latestGatewayRow["SD Free (MB)"] || "0"),
-      lastBatchUpload: latestGatewayRow["Batch Upload Time"] || latestGatewayRow["Gateway Received Time"] || "N/A"
+      lastBatchUpload: latestGatewayRow["Batch Upload Time"] || latestGatewayRow["Gateway Received Time"] || "N/A",
+      source: latestGatewayRow["Device ID"] // Track which device provided this status
     };
 
-    // 3. Logs should be Newest -> Oldest (Latest at top)
+    // 3. Logs (Newest -> Oldest)
     const logs = [...sortedRows].reverse();
 
     return { sensors, gateway, logs };
 
   } catch (error) {
-    console.error("Fetching from Google Sheets failed:", error);
+    console.error("Critical error processing sensor data:", error);
     throw error; 
   }
 };
 
 export const mapDeviceNickname = (id: string): string => {
   if (!id) return "Unknown";
-  if (id.includes("Lora1")) return "Plot 1";
-  if (id.includes("Lora2")) return "Plot 2";
-  if (id.includes("Lora3")) return "Plot 3";
-  if (id.includes("Lora4")) return "Plot 4";
-  if (id.includes("Lora5")) return "Plot 5";
+  const lowerId = id.toLowerCase();
+  
+  // LoRa Nodes
+  if (lowerId.includes("lora1")) return "Plot 1";
+  if (lowerId.includes("lora2")) return "Plot 2";
+  if (lowerId.includes("lora3")) return "Plot 3";
+  if (lowerId.includes("lora4")) return "Plot 4";
+  if (lowerId.includes("lora5")) return "Plot 5";
+  
+  // GSM / Standalone Device Mappings
+  if (lowerId.includes("gsm") || lowerId.includes("standalone") || lowerId.includes("sa_") || lowerId.includes("esp32")) return "Standalone Field";
+  
   return id;
 };
 
@@ -207,5 +257,6 @@ const getDefaultGateway = (): GatewayStatus => ({
   wifiSignal: "-",
   gsmSignal: "-",
   sdFree: "-",
-  lastBatchUpload: "-"
+  lastBatchUpload: "-",
+  source: "None"
 });

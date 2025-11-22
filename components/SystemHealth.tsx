@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { GatewayStatus } from '../types';
-import { Wifi, Signal, Database, UploadCloud, Activity, Smartphone, CalendarClock } from 'lucide-react';
+import { Wifi, Signal, Database, UploadCloud, Activity, Smartphone, CalendarClock, Server } from 'lucide-react';
 import { formatDateTime } from '../services/dataService';
 import { SignalBars, getSignalQuality } from './SignalBars';
 
@@ -9,19 +10,29 @@ interface Props {
 }
 
 export const SystemHealth: React.FC<Props> = ({ status }) => {
-  const isWifi = status.network === 'WiFi';
+  // Robust check for WiFi vs Cellular (handles "WiFi", "wifi", "WIFI")
+  const isWifi = status.network.toLowerCase().includes('wifi');
+  
   const signalValue = isWifi ? status.wifiSignal : status.gsmSignal;
   const { label: signalLabel, textColor: signalColor } = getSignalQuality(isWifi ? 'WiFi' : 'GSM', signalValue);
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-8">
-      <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-3">
-        <div className="p-1.5 bg-blue-50 rounded-lg text-blue-600">
-          <Activity size={16} />
+      <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-blue-50 rounded-lg text-blue-600">
+            <Activity size={16} />
+            </div>
+            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">
+            Latest Activity
+            </h3>
         </div>
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">
-          Gateway Health
-        </h3>
+        {status.source && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 rounded-md border border-slate-200">
+                <Server size={10} className="text-slate-400" />
+                <span className="text-[10px] font-semibold text-slate-600">{status.source}</span>
+            </div>
+        )}
       </div>
       
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">

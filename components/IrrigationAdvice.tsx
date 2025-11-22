@@ -9,11 +9,15 @@ interface Props {
     name: string;
     index: number;
   };
+  plotName?: string;
 }
 
-export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage }) => {
+export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage, plotName }) => {
   const [showRationale, setShowRationale] = useState(false);
   
+  // Removed nameSuffix as per user request to not mention plot name in the advice text
+  // const nameSuffix = plotName ? ` ${plotName}` : ''; 
+
   let advice = {
     type: 'good' as 'good' | 'warn' | 'critical' | 'info',
     text: 'Levels Optimal',
@@ -38,7 +42,7 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
           advice = { 
               type: 'warn', 
               text: 'Critically Low', 
-              subtext: `Rain expected. (-${absDepth}cm below soil)`, 
+              subtext: `Rain expected. (-${absDepth}cm)`, 
               rationale: 'Rain is forecast, but soil is currently too dry for most stages.',
               smartTip: 'Check if rain volume is enough to re-saturate soil (needs >20mm).',
               icon: <CloudRain size={16} /> 
@@ -46,8 +50,8 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
        } else {
           advice = { 
               type: 'critical', 
-              text: 'Irrigate Now', 
-              subtext: `Too low (-${absDepth}cm). Target: 17cm+.`, 
+              text: 'Irrigate', 
+              subtext: `Level < 5cm. Target: 17cm+.`, 
               rationale: 'Severe drying can lead to yield loss and soil cracking beyond recovery.',
               smartTip: 'Prioritize irrigation immediately to prevent soil cracking.',
               icon: <Droplets size={16} /> 
@@ -63,34 +67,25 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
            smartTip: null,
            icon: <ArrowDown size={16} /> 
        };
-    } else if (level >= 15 && level < 17) {
-       // 15-17cm absolute -> Saturated
-       advice = { 
-           type: 'info', 
-           text: 'Saturated', 
-           subtext: 'At soil surface. Target: 17-20cm.', 
-           rationale: 'Soil is saturated. This is good for most vegetative stages.',
-           smartTip: 'Good for applying fertilizer if weather is clear.',
-           icon: <Droplets size={16} /> 
-       };
-    } else if (level >= 17 && level <= 25) {
-       // 17-25cm absolute -> Good Flood
+    } else if (level >= 15 && level <= 20) {
+       // 15-20cm absolute -> Saturated / Good
+       // Adjusted upper limit to 20cm as per user request for "Stop Irrigating" > 20cm
        advice = { 
            type: 'good', 
            text: 'Levels Good', 
-           subtext: `Depth +${absDepth}cm above soil.`, 
-           rationale: 'Ideal flooding depth suppressing weeds and supporting growth.',
+           subtext: `Depth ${level >= 15 ? '+' : ''}${(level - 15).toFixed(0)}cm.`, 
+           rationale: 'Water levels are optimal for crop growth.',
            smartTip: null,
            icon: <Check size={16} /> 
        };
     } else {
-       // > 25cm absolute -> High
+       // > 20cm absolute -> Stop Irrigating
        advice = { 
            type: 'warn', 
-           text: 'High Water', 
-           subtext: `Depth ${absDepth}cm. Check outlet.`, 
-           rationale: 'Deep water hampers tillering and increases lodging risk.',
-           smartTip: isRainExpected ? 'Rain incoming. Lower spillways to prevent overflow.' : 'Consider draining slightly to encourage tillering.',
+           text: 'Stop Irrigating', 
+           subtext: `Level > 20cm.`, 
+           rationale: 'Water level exceeds 20cm. Stop inflow to save water and prevent overflow.',
+           smartTip: isRainExpected ? 'Rain incoming. Lower spillways to prevent overflow.' : 'Consider draining slightly if level continues to rise.',
            icon: <AlertTriangle size={16} /> 
        };
     }
@@ -102,9 +97,9 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
       // 0: Establishment
       if (index === 0) {
           if (level < 15) {
-             advice = { type: 'critical', text: 'Low Water', subtext: 'Soil must be saturated.', rationale: 'Seedlings need consistent moisture to recover from transplant shock.', smartTip: 'Exposed soil allows weeds to germinate.', icon: <Droplets size={16} /> };
+             advice = { type: 'critical', text: 'Irrigate', subtext: 'Soil must be saturated.', rationale: 'Seedlings need consistent moisture to recover from transplant shock.', smartTip: 'Exposed soil allows weeds to germinate.', icon: <Droplets size={16} /> };
           } else if (level > 25) {
-             advice = { type: 'warn', text: 'Too Deep', subtext: 'May drown seedlings.', rationale: 'Seedlings cannot breathe if fully submerged.', smartTip: 'Deep water reduces herbicide efficacy.', icon: <AlertTriangle size={16} /> };
+             advice = { type: 'warn', text: 'Drain', subtext: 'May drown seedlings.', rationale: 'Seedlings cannot breathe if fully submerged.', smartTip: 'Deep water reduces herbicide efficacy.', icon: <AlertTriangle size={16} /> };
           } else {
              advice = { type: 'good', text: 'Levels Optimal', subtext: 'Good for establishment.', rationale: 'Shallow water controls weeds without drowning seedlings.', smartTip: null, icon: <Check size={16} /> };
           }
@@ -124,7 +119,7 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
            } else if (level < 15) {
                advice = { type: 'info', text: 'AWD Drying', subtext: 'Good for root depth.', rationale: 'Mild drying pushes roots deeper before the reproductive phase.', smartTip: 'Check for soil cracking - irrigate if cracks >1cm.', icon: <ArrowDown size={16} /> };
            } else if (level > 22) {
-               advice = { type: 'info', text: 'Allow to Drain', subtext: 'Let water subside.', rationale: 'Deep water is unnecessary; save irrigation water.', smartTip: null, icon: <ArrowDown size={16} /> };
+               advice = { type: 'info', text: 'Stop Irrigating', subtext: 'Let water subside.', rationale: 'Deep water is unnecessary; save irrigation water.', smartTip: null, icon: <ArrowDown size={16} /> };
            } else {
                advice = { type: 'good', text: 'Levels OK', subtext: 'Monitor drying cycle.', rationale: 'Water levels are sufficient for elongation.', smartTip: null, icon: <Check size={16} /> };
            }
@@ -132,7 +127,7 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
       // 3: Booting / Panicle Initiation - FLOOD REQUIRED
       else if (index === 3) {
            if (level < 15) {
-               advice = { type: 'critical', text: 'Flood Required', subtext: 'Crop stress! Do not dry.', rationale: 'Water stress now causes abortion of spikelets (yield loss).', smartTip: 'This is the most critical stage for water.', icon: <AlertTriangle size={16} /> };
+               advice = { type: 'critical', text: 'Irrigate', subtext: 'Stress causes yield loss.', rationale: 'Water stress now causes abortion of spikelets (yield loss).', smartTip: 'This is the most critical stage for water.', icon: <AlertTriangle size={16} /> };
            } else if (level < 18) {
                advice = { type: 'warn', text: 'Increase Level', subtext: 'Target 5cm standing water.', rationale: 'Standing water buffers temperature and ensures panicle development.', smartTip: 'Ensure field is fully submerged.', icon: <Droplets size={16} /> };
            } else if (level > 30) { 
@@ -144,7 +139,7 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
       // 4: Flowering - FLOOD REQUIRED
       else if (index === 4) {
           if (level < 15) {
-               advice = { type: 'critical', text: 'Water Needed', subtext: 'Stress causes sterility.', rationale: 'Drought during flowering causes high sterility (empty grains).', smartTip: isHighHeat ? 'High heat detected! Flood to cool the canopy.' : null, icon: <AlertTriangle size={16} /> };
+               advice = { type: 'critical', text: 'Irrigate', subtext: 'Stress causes sterility.', rationale: 'Drought during flowering causes high sterility (empty grains).', smartTip: isHighHeat ? 'High heat detected! Flood to cool the canopy.' : null, icon: <AlertTriangle size={16} /> };
            } else {
                advice = { type: 'good', text: 'Optimal', subtext: 'Maintain during flowering.', rationale: 'Stable water supply is essential for pollination.', smartTip: 'Avoid disturbing the water or plants during pollination (mid-day).', icon: <Check size={16} /> };
            }
@@ -154,7 +149,7 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
           if (level < 15) {
               advice = { type: 'info', text: 'Keep Moist', subtext: 'Saturation is sufficient.', rationale: 'Standing water is not strictly needed, but soil must stay moist.', smartTip: null, icon: <Droplets size={16} /> };
           } else if (level > 25) {
-              advice = { type: 'info', text: 'Can Lower', subtext: 'Deep water not needed.', rationale: 'You can stop irrigation to prepare for ripening.', smartTip: 'Start planning terminal drainage.', icon: <ArrowDown size={16} /> };
+              advice = { type: 'info', text: 'Stop Irrigating', subtext: 'Deep water not needed.', rationale: 'You can stop irrigation to prepare for ripening.', smartTip: 'Start planning terminal drainage.', icon: <ArrowDown size={16} /> };
           } else {
               advice = { type: 'good', text: 'Good Levels', subtext: 'Filling stage.', rationale: 'Moisture is sufficient for grain filling.', smartTip: null, icon: <Check size={16} /> };
           }
@@ -162,7 +157,7 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
       // 6+: Maturity - Drain
       else if (index >= 6) {
           if (level > 15) {
-              advice = { type: 'warn', text: 'Drain Field', subtext: 'Prepare for harvest.', rationale: 'Draining ensures uniform ripening and easier harvesting.', smartTip: 'Open all drainage outlets.', icon: <ArrowDown size={16} /> };
+              advice = { type: 'warn', text: 'Drain', subtext: 'Prepare for harvest.', rationale: 'Draining ensures uniform ripening and easier harvesting.', smartTip: 'Open all drainage outlets.', icon: <ArrowDown size={16} /> };
           } else {
               advice = { type: 'good', text: 'Ready', subtext: 'Field is dry.', rationale: 'Field is correctly drained for harvest.', smartTip: null, icon: <Sprout size={16} /> };
           }
@@ -196,8 +191,8 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage })
                     {advice.icon}
                 </div>
                 <div className="flex flex-col">
-                    <span className="text-xs font-bold uppercase tracking-tight leading-tight">{advice.text}</span>
-                    <span className="text-[10px] opacity-80 font-medium leading-tight">{advice.subtext}</span>
+                    <span className="text-xs font-bold uppercase tracking-tight leading-tight line-clamp-1">{advice.text}</span>
+                    <span className="text-[10px] opacity-80 font-medium leading-tight line-clamp-1">{advice.subtext}</span>
                 </div>
              </div>
              <Info size={14} className="opacity-50 hover:opacity-100" />
