@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { fetchSensorData, parseDate, formatDateTime } from './services/dataService';
 import { SensorData, GatewayStatus, SheetRow } from './types';
@@ -283,6 +284,16 @@ function App() {
         }
     } catch (e) { return null; }
     return null;
+  };
+
+  const getPhaseGradient = (phase: string) => {
+      switch (phase) {
+          case 'Reproductive': return 'from-teal-400 to-teal-600';
+          case 'Ripening': return 'from-amber-400 to-amber-600';
+          case 'Finished': return 'from-orange-400 to-orange-600';
+          case 'Vegetative':
+          default: return 'from-emerald-400 to-emerald-600';
+      }
   };
 
   // Filter sensors based on selection
@@ -672,7 +683,7 @@ function App() {
                     <div className="bg-white p-2 rounded-full shadow-sm text-blue-500"><CloudRain size={16} /></div>
                     <div>
                         <h3 className="text-sm font-bold text-blue-900">Get Local Weather</h3>
-                        <p className="text-xs text-blue-700">{weatherError ? 'Location access failed. Try again.' : 'For smarter irrigation advice'}</p>
+                        <p className="text-xs text-blue-700">{weatherError ? 'Location access failed. Check device permissions.' : 'For smarter irrigation advice'}</p>
                     </div>
                  </div>
                  <button 
@@ -747,6 +758,8 @@ function App() {
             )}
             {filteredSensors.map((sensor, index) => {
               const cropInfo = getCropInfo(sensor.id);
+              const progress = cropInfo ? Math.min((cropInfo.days / cropInfo.totalDuration) * 100, 100) : 0;
+              const phaseGradient = cropInfo ? getPhaseGradient(cropInfo.phase) : 'from-emerald-400 to-emerald-600';
 
               return (
               <div 
@@ -818,16 +831,25 @@ function App() {
                     <AWDGauge level={sensor.currentLevel} />
                 </div>
 
-                {/* Crop Stage Info with Visual */}
+                {/* Crop Stage Info with Visual and Progress Bar */}
                 {cropInfo && (
                     <div className="mb-4 rounded-xl border border-emerald-100 bg-gradient-to-b from-emerald-50/40 to-white overflow-hidden relative group-hover:border-emerald-200 transition-colors">
-                        <div className="flex items-center justify-between px-3 py-2 border-b border-emerald-100/50 bg-white/60 backdrop-blur-[2px] relative z-10">
-                            <div className="flex items-center gap-1.5 font-bold text-emerald-800 text-xs">
-                                <Sprout size={14} className="text-emerald-600" />
-                                {cropInfo.stageName}
+                        <div className="relative z-10 bg-white/60 backdrop-blur-[2px] border-b border-emerald-100/50">
+                             <div className="flex items-center justify-between px-3 py-2">
+                                <div className="flex items-center gap-1.5 font-bold text-emerald-800 text-xs">
+                                    <Sprout size={14} className="text-emerald-600" />
+                                    {cropInfo.stageName}
+                                </div>
+                                <div className="text-[10px] font-bold text-emerald-600 bg-white px-2 py-0.5 rounded-full border border-emerald-100 shadow-sm">
+                                    Day {cropInfo.days}
+                                </div>
                             </div>
-                            <div className="text-[10px] font-bold text-emerald-600 bg-white px-2 py-0.5 rounded-full border border-emerald-100 shadow-sm">
-                                Day {cropInfo.days}
+                            {/* Growth Progress Bar */}
+                            <div className="h-1 w-full bg-slate-100">
+                                <div 
+                                    className={`h-full bg-gradient-to-r ${phaseGradient} shadow-[0_0_10px_rgba(16,185,129,0.4)] transition-all duration-1000 ease-out`} 
+                                    style={{ width: `${progress}%` }}
+                                ></div>
                             </div>
                         </div>
                         

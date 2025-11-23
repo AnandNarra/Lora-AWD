@@ -12,6 +12,15 @@ interface Props {
   plotName?: string;
 }
 
+interface AdviceState {
+    type: 'good' | 'warn' | 'critical' | 'info';
+    text: string;
+    subtext: string;
+    rationale: string;
+    smartTip: string | null;
+    icon: React.ReactNode;
+}
+
 export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage, plotName }) => {
   const [showRationale, setShowRationale] = useState(false);
 
@@ -35,12 +44,12 @@ export const IrrigationAdvice: React.FC<Props> = ({ level, weather, cropStage, p
   const isHighHeat = (weather?.temp || 0) > 35;
 
   // Advice State
-  let advice = {
-    type: 'good' as 'good' | 'warn' | 'critical' | 'info',
+  let advice: AdviceState = {
+    type: 'good',
     text: 'Levels Optimal',
     subtext: 'Monitoring...',
     rationale: 'Water levels are within the target range.',
-    smartTip: null as string | null,
+    smartTip: null,
     icon: <Check size={16} />
   };
 
