@@ -10,8 +10,8 @@ import {
   ReferenceLine, 
   Brush 
 } from 'recharts';
-import { parseDate, formatFriendlyDate, formatDateTime } from '../services/dataService';
-import { Filter, ZoomIn, Calendar, Check } from 'lucide-react';
+import { parseDate,  formatDateTime } from '../services/dataService';
+import { Filter, ZoomIn, Calendar } from 'lucide-react';
 
 interface Props {
   data: { time: string; level: number }[];
