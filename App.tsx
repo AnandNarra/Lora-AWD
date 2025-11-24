@@ -282,7 +282,7 @@ function App() {
   const getCropInfo = (id: string) => {
     try {
         // Dependency on configVersion ensures re-calculation when state changes
-        const _v = configVersion; 
+        // const _v = configVersion; 
         const saved = localStorage.getItem(`crop_${id}`);
         if (saved) {
             return calculateStage(JSON.parse(saved));
