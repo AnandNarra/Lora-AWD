@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
 import { fetchSensorData, parseDate, formatDateTime } from './services/dataService';
 import { SensorData, GatewayStatus, SheetRow } from './types';
@@ -39,9 +38,6 @@ function App() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState(false);
-  
-  // Force update when crop config changes
-  const [configVersion, setConfigVersion] = useState(0);
 
   const getSavedNames = () => {
     try {
@@ -281,8 +277,6 @@ function App() {
 
   const getCropInfo = (id: string) => {
     try {
-        // Dependency on configVersion ensures re-calculation when state changes
-        // const _v = configVersion; 
         const saved = localStorage.getItem(`crop_${id}`);
         if (saved) {
             return calculateStage(JSON.parse(saved));
@@ -621,7 +615,7 @@ function App() {
                  <CropManager 
                     sensorId={selectedSensor.id} 
                     weather={weather} 
-                    onSave={() => setConfigVersion(v => v + 1)} 
+                    onSave={() => {}} 
                  />
               </div>
             </div>
